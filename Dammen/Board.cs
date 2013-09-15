@@ -13,16 +13,17 @@ namespace Dammen
     
     public class Board
     {
+        int totalNumNodes = 0;
+
+        public ulong bitboardWhitePieces;
+        public ulong bitboardBlackPieces;
+
         public Piece[,] pieces = new Piece[10,10];
         public Piece[] pieces1D = new Piece[50];
-        
-        float score;
         public Color currentColor;
-
         public static int[] squareIndexToX;
         public static int[] squareIndexToY;
         public int numNodes = 0;
-        int totalNumNodes = 0;
         public static Random rand = new Random();
 
         public struct HashMatch
@@ -124,7 +125,7 @@ namespace Dammen
 
             //SetupRandomBoard();
             ClearHashes();
-
+            DoPerft();
             //SetupTestBoard1();
 
             ai = new AI(this);
@@ -237,6 +238,16 @@ namespace Dammen
         }
         public List<Move> GetAllAllowedMoves(int minPiecesToTake = 0)
         {
+            //   00  01  02  03  04
+            // 05  06  07  08  09
+            //   10  11  12  13  14
+            // 15  16  17  18  19           etc
+
+
+            // calculate see if we can take any pieces// assume white playing
+//            ulong takebits =11 bitboardWhitePieces & (bitboardWhitePieces << 5)  & somemask);
+//            takebits 
+
             MoveSet ms = new MoveSet();
             ms.minScore = minPiecesToTake;
 
@@ -253,9 +264,6 @@ namespace Dammen
         }
         public Move GetBestMove()
         {
-            Console.WriteLine("BLA" + IntPtr.Size.ToString());
-            //ClearHashes();
-
             return ai.CalculateBestMove(10000);
 
 #if DEBUG
@@ -386,25 +394,38 @@ namespace Dammen
             return val;
         }
 
-//        Int64 Perft(int depth)
-//        {
-//            if (depth <= 0)
-//                return 1;
-//            Int64 numNodes = 0;
-//            List<Move> moves = GetAllAllowedMoves();
-//            Color c = currentColor;
-//            currentColor = (currentColor == Color.Black ? Color.White : Color.Black);
-//            int length = moves.Count;
-//           
-//            for (int i = 0; i < length; i++)
-//            {
-//                Move m = moves[i];
-//                m.Apply(this);
-//                numNodes += Perft(depth - 1);
-//                m.Undo(this);
-//            }
-//            currentColor = c;
-//            return numNodes;
-//        }
+
+        void DoPerft()
+        {
+            Stopwatch sw = new Stopwatch();
+            sw.Start();
+            ulong num = Perft(9);
+            num += Perft(9);
+            num += Perft(9);
+            sw.Stop();
+            Console.WriteLine("Perft: " + num/3 + " nodes in " + sw.ElapsedMilliseconds / 3000.0 + " s");
+            Console.WriteLine("Previous result: 41022614 nodes in 18.453 s");
+        }
+
+        ulong Perft(int depth)
+        {
+            if (depth <= 0)
+                return 1;
+            ulong numNodes = 0;
+            List<Move> moves = GetAllAllowedMoves();
+            Color c = currentColor;
+            currentColor = (currentColor == Color.Black ? Color.White : Color.Black);
+            int length = moves.Count;
+           
+            for (int i = 0; i < length; i++)
+            {
+                Move m = moves[i];
+                m.Apply(this);
+                numNodes += Perft(depth - 1);
+                m.Undo(this);
+            }
+            currentColor = c;
+            return numNodes;
+        }
     }
 }
