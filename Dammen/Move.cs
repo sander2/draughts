@@ -25,9 +25,9 @@ namespace Dammen
 
         public void AddHop(int x, int y, int victimX, int victimY, Piece.Type victimType)
         {
-            for (int i = 0; i < hops.Count; i++)
-                if (hops[i].victimX == victimX && hops[i].victimY == victimY)
-                    throw new Exception("Cant jump same piece twice!");
+//            for (int i = 0; i < hops.Count; i++)
+//                if (hops[i].victimX == victimX && hops[i].victimY == victimY)
+//                    throw new Exception("Cant jump same piece twice!");
 
             hops.Add(new Hop{targetX = x, targetY = y,victimX = victimX, victimY = victimY, victimType = victimType});
             numTaken++;
@@ -65,18 +65,13 @@ namespace Dammen
                     if (b.pieces[q,j] != null)
                         pieces2[q,j] = new Piece(q,j,b.pieces[q,j].color, b.pieces[q,j].type);
 #endif
-#if DEBUG
-#if USE_HASHES
-                if (hash != b.CalculateHash())
-                    throw new Exception();
-#endif
-#endif
+
 
             typePriorToApply = b.pieces [x, y].type;
             int len = hops.Count;
             
             // remove origin
-            hash ^= Board.hashDing[b.pieces[x, y].squareNumIndex, b.pieces [x, y].HashCode];
+            hash ^= AI.zobristPieceMask[b.pieces[x, y].squareNumIndex, b.pieces [x, y].HashCode];
 
             // update origin and destination
             // required to do in steps for the case when begin == end
@@ -90,7 +85,7 @@ namespace Dammen
                 b.pieces [hops [len - 1].targetX, hops [len - 1].targetY].type = Piece.Type.Dam;
 
             // add destination
-            hash ^= Board.hashDing[b.pieces[hops [len - 1].targetX, hops [len - 1].targetY].squareNumIndex, 
+            hash ^= AI.zobristPieceMask[b.pieces[hops [len - 1].targetX, hops [len - 1].targetY].squareNumIndex, 
                                    b.pieces [hops [len - 1].targetX, hops [len - 1].targetY].HashCode];
 
 
@@ -101,17 +96,12 @@ namespace Dammen
                 if (b.pieces [hops [i].victimX, hops [i].victimY].color == Color.None)
                     throw new Exception();
 #endif
-                hash ^= Board.hashDing[b.pieces[hops [i].victimX, hops [i].victimY].squareNumIndex, 
+                hash ^= AI.zobristPieceMask[b.pieces[hops [i].victimX, hops [i].victimY].squareNumIndex, 
                                        b.pieces [hops [i].victimX, hops [i].victimY].HashCode];
 
                 b.pieces [hops [i].victimX, hops [i].victimY].color = Color.None;
             }
-#if DEBUG
-#if USE_HASHES
-            if (hash != b.CalculateHash())
-                throw new Exception();
-#endif
-#endif
+
 #if CHECK_APPLY_UNDO
             for (int q = 0; q < 10; q++)
                 for (int j = 0; j < 10; j++)
@@ -216,8 +206,8 @@ namespace Dammen
                 b.pieces [targetX, targetY].type = Piece.Type.Dam;
 
             // update hash
-            hash ^= Board.hashDing[ToHumanReadablePos(x, y) - 1, b.pieces [x, y].HashCode];
-            hash ^= Board.hashDing[ToHumanReadablePos(targetX, targetY) - 1, b.pieces [targetX, targetY].HashCode];
+            hash ^= AI.zobristPieceMask[ToHumanReadablePos(x, y) - 1, b.pieces [x, y].HashCode];
+            hash ^= AI.zobristPieceMask[ToHumanReadablePos(targetX, targetY) - 1, b.pieces [targetX, targetY].HashCode];
 
             b.pieces [x, y].color = Color.None;
 

@@ -5,7 +5,38 @@ using System.Diagnostics;
 
 namespace Dammen
 {
-    public class AI
+    public abstract class Player
+    {
+        public abstract Move GetMove();
+    }
+
+    public class HumanPlayer : Player
+    {
+        private Board b;
+        public HumanPlayer(Board b)
+        {
+            this.b = b;
+        }
+
+        public override Move GetMove()
+        {
+            List<Move> allowedMoves = b.GetAllAllowedMoves();
+            while (true)
+            {
+                Console.WriteLine("Enter a move:");
+                string s = Console.ReadLine();
+                foreach (var a in allowedMoves)
+                    if (a.GetMoveDescription().Equals(s))
+                        return a;
+                Console.WriteLine("Move not valid; valid moves are: ");
+                foreach (var a in allowedMoves)
+                    Console.WriteLine(a.GetMoveDescription());
+                allowedMoves = b.GetAllAllowedMoves();
+            }
+        }
+    }
+
+    public class AI : Player
     {
         private int tempBestMoveIndex;
         private Board b;
@@ -13,19 +44,70 @@ namespace Dammen
         private bool stop;
         private Thread t;
         private ulong hash;
+        private int time;
 
         public int bestMoveIndex { get; private set; }
         public float BestScore { get; private set; }
 
-        public AI(Board b)
+        private struct HashMatch
+        {
+            #if DEBUG
+            public string perfectHash;
+            #endif
+            public ulong hash;
+            public int bestMoveIndex;
+            public char numTaken;
+        };
+        private const int HASH_TABLE_SIZE = 32*1024*1024;
+        private HashMatch[] hashCollection = new HashMatch[HASH_TABLE_SIZE];
+        public static ulong[,] zobristPieceMask;
+        public static ulong zobristColorMask;
+
+        public AI(Board b, int time)
         {
             this.b = b;
+            this.time = time;
+            Random rand = new Random();
+            if (zobristPieceMask == null)
+            {
+                zobristPieceMask = new ulong[50, 4];
+                for (int i = 0; i < 50; i++)
+                    for (int j = 0; j < 4; j++)
+                        zobristPieceMask[i,j] = ((ulong)rand.Next()) << 32 | (ulong)rand.Next();
+                zobristColorMask = ((ulong)rand.Next()) << 32 | (ulong)rand.Next();
+            }
+
+            ClearHashes();
         }
 
-        public Move CalculateBestMove(int time)
+        /// <summary>
+        /// Calculates the hash.
+        /// </summary>
+        /// <returns>The hash.</returns>
+        public ulong CalculateHash(Board brd)
+        {
+            ulong hash = 0;
+            for (int i = 0; i < 50; i++)
+                if (brd.pieces1D[i].color != Color.None)
+                    hash ^= (ulong)AI.zobristPieceMask[i, brd.pieces1D[i].HashCode];
+            if (brd.currentColor == Color.Black)
+                hash ^= AI.zobristColorMask;
+            return hash;
+        }
+
+        private void ClearHashes()
+        {
+            for (int i = 0; i < hashCollection.Length; i++)
+            {
+                hashCollection[i].bestMoveIndex = 0;
+                hashCollection[i].hash = 0;
+            }
+        }
+
+        public override Move GetMove()
         {
             stop = false;
-            this.hash = b.CalculateHash();
+            this.hash = CalculateHash(b);
 
             Console.WriteLine("Current score: " + b.RateBoard());
             Stopwatch totalsw = new Stopwatch();
@@ -34,11 +116,12 @@ namespace Dammen
             t = new Thread(new ThreadStart(Start));
             t.IsBackground = false;
             t.Start();
+            int timeLeft = time;
             while (t.IsAlive)
             {
                 Thread.Sleep(100);
-                time -= 100;
-                if (time <= 0)
+                timeLeft -= 100;
+                if (timeLeft <= 0)
                     stop = true;
             }
             List<Move> moves = b.GetAllAllowedMoves();
@@ -55,40 +138,39 @@ namespace Dammen
             Console.WriteLine("Playing for " + (isMaximizing ? "white" : "black"));
             List<Move> moves = b.GetAllAllowedMoves();
             Console.WriteLine("test");
-            b.numNodes = 0;
             for (int i = 1; i < 20; i++)
             {
                 Stopwatch sw = new Stopwatch();
                 sw.Start();
                 tempBestMoveIndex = 0; // required for when theres only one valid move
-                tempBestScore = ExplainMiniMax(i, isMaximizing, true, float.NegativeInfinity, float.PositiveInfinity, hash);
+                tempBestScore = MiniMax(i, isMaximizing, true, float.NegativeInfinity, float.PositiveInfinity, hash);
                 if (stop)
                     return;
                 sw.Stop();
                 bestMoveIndex = tempBestMoveIndex;
                 BestScore = tempBestScore;
-                Console.WriteLine("Depth " + i + ": " + b.numNodes + " nodes in " + sw.ElapsedMilliseconds / 1000.0 + " s (" + b.numNodes / ((float)sw.ElapsedMilliseconds) + " kN/s)" +
+                Console.WriteLine("Depth " + i + ": " + b.NumBoardRatings + " nodes in " + sw.ElapsedMilliseconds / 1000.0 + " s (" + b.NumBoardRatings / ((float)sw.ElapsedMilliseconds) + " kN/s)" +
                                   " Projected score: " + BestScore + " Best move: " + moves[bestMoveIndex].GetMoveDescription() + " q: " + Math.Pow((double)sw.ElapsedMilliseconds, 1/((double)i)));
             }
         }
 
-        public float ExplainMiniMax(int depth, bool maximizing, bool isRootNode, float alpha, float beta, ulong hash)
+        private float MiniMax(int depth, bool maximizing, bool isRootNode, float alpha, float beta, ulong hash)
         {
             if (this.stop)
                 return (maximizing ? float.PositiveInfinity : float.NegativeInfinity);
 
 //            #if USE_HASHES
-            int hashIndex = (int)(hash % ((ulong)Board.HASH_TABLE_SIZE));
+            int hashIndex = (int)(hash % ((ulong)HASH_TABLE_SIZE));
 
             if (depth <= 0)
                 return b.RateBoard();
 
             int bestBet = 0;
             List<Move> moves;
-            if (b.hashCollection [hashIndex].hash == hash)
+            if (hashCollection [hashIndex].hash == hash)
             {
-                moves = b.GetAllAllowedMoves(b.hashCollection [hashIndex].numTaken);
-                bestBet = b.hashCollection [hashIndex].bestMoveIndex;
+                moves = b.GetAllAllowedMoves(hashCollection [hashIndex].numTaken);
+                bestBet = hashCollection [hashIndex].bestMoveIndex;
             }
             else
                 moves = b.GetAllAllowedMoves();
@@ -98,7 +180,7 @@ namespace Dammen
             if (length == 0)
                 return b.RateBoard();
 
-            hash ^= Board.currentColorHash; // invert for recursed calls
+            hash ^= AI.zobristColorMask; // invert for recursed calls
 //            #endif
 
 
@@ -120,20 +202,9 @@ namespace Dammen
             int i = bestBet;
             do
             {
-                #if DEBUG
-                #if USE_HASHES
-                if (hash != b.CalculateHash())
-                    throw new Exception();
-                #endif
-                #endif
                 Move m = moves[i];
                 ulong newHash = m.Apply(b, hash);
-                #if DEBUG
-                #if USE_HASHES
-                if (newHash != b.CalculateHash())
-                    throw new Exception();
-                #endif
-                #endif
+              
                 #if CHECK_APPLY_UNDO
                 Piece[,] pieces2 = new Piece[10,10];
                 for (int q = 0; q < 10; q++)
@@ -141,7 +212,7 @@ namespace Dammen
                         if (pieces[q,j] != null)
                             pieces2[q,j] = new Piece(pieces[q,j].color, pieces[q,j].type);
                 #endif
-                m.score = ExplainMiniMax(depth - 1, !maximizing, false, alpha, beta, newHash);
+                m.score = MiniMax(depth - 1, !maximizing, false, alpha, beta, newHash);
                 
                 #if CHECK_APPLY_UNDO
                 for (int q = 0; q < 10; q++)
@@ -180,14 +251,14 @@ namespace Dammen
             #if USE_HASHES
             if (bestIndex != 0/* && hashCollection [hashIndex].hash == 0*/)
             {
-                b.hashCollection [hashIndex].bestMoveIndex = bestIndex;
-                b.hashCollection [hashIndex].numTaken = (char)moves[bestIndex].numTaken;
+                hashCollection [hashIndex].bestMoveIndex = bestIndex;
+                hashCollection [hashIndex].numTaken = (char)moves[bestIndex].numTaken;
                 if (bestIndex >= length)
                     throw new Exception("can not add items that do not exist!");
-                b.hashCollection [hashIndex].hash = hash ^ Board.currentColorHash;
-                #if DEBUG
-                b.hashCollection[hashIndex].perfectHash = b.PerfectHash();
-                #endif
+                hashCollection [hashIndex].hash = hash ^ AI.zobristColorMask;
+//                #if DEBUG
+//                b.hashCollection[hashIndex].perfectHash = b.PerfectHash();
+//                #endif
             }
             #endif
             tempBestMoveIndex = bestIndex;

@@ -60,6 +60,7 @@
     <Compile Include="Move.cs" />
     <Compile Include="Piece.cs" />
     <Compile Include="AI.cs" />
+    <Compile Include="BitboardTest.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
 </Project>
